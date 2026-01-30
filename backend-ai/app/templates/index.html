@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>교통 법규 위반 관제 시스템</title>
+    <style>
+        body { font-family: 'Malgun Gothic', sans-serif; padding: 40px; background-color: #f0f2f5; }
+        .upload-section { background-color: #fff; padding: 25px; border-radius: 15px; margin-bottom: 30px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-left: 5px solid #1a73e8; }
+        .card { border: 1px solid #ccc; padding: 20px; margin-bottom: 20px; border-radius: 15px; background-color: #fff; display: flex; gap: 25px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .video-box { flex: 1; }
+        .info-box { flex: 1.5; }
+        .plate-number { background-color: #f1f3f4; padding: 5px 10px; border-radius: 5px; font-weight: bold; font-size: 1.1em; border: 1px solid #ddd; color: #d93025; }
+        button { padding: 10px 20px; background-color: #1a73e8; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        button:hover { background-color: #1557b0; }
+        #llm-response { margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px; display: none; white-space: pre-wrap; line-height: 1.6; border: 1px solid #e0e0e0; }
+        .status-dot { height: 10px; width: 10px; background-color: #34a853; border-radius: 50%; display: inline-block; margin-right: 5px; }
+    </style>
+</head>
+<body>
+    <h1 style="color: #1a73e8;">실시간 위반 관제 시스템</h1>
+    
+    <div style="margin-bottom: 20px; font-size: 0.9em; color: #666;">
+        <span class="status-dot"></span> 자바 서버 연동 중 (localhost:8080)
+    </div>
+
+    <div class="upload-section">
+        <h3 style="margin-top:0;">🎥 분석 영상 업로드</h3>
+        <form action="/api/upload-video" method="post" enctype="multipart/form-data" style="display: flex; gap: 15px; align-items: center;">
+            <input type="file" name="file" accept="video/mp4,video/*" required style="padding: 8px; border: 1px solid #ccc; border-radius: 5px; flex: 1;">
+            <button type="submit">AI 분석 시작</button>
+        </form>
+    </div>
+
+    <div id="log-container"> <p id="placeholder">새로운 위반 이벤트를 기다리는 중입니다...</p> </div>
+
+    <script>
+        let lastCount = 0;
+        async function checkNewLogs() {
+            try {
+                // 💡 자바 서버에서 로그를 가져오도록 호출
+                const res = await fetch('/api/logs');
+                if (!res.ok) throw new Error('네트워크 응답 에러');
+                
+                const logs = await res.json();
+                
+                if (logs.length > lastCount) {
+                    const container = document.getElementById('log-container');
+                    const placeholder = document.getElementById('placeholder');
+                    if (placeholder) placeholder.remove();
+
+                    // 최신 로그가 위로 오도록 역순 출력
+                    for (let i = lastCount; i < logs.length; i++) {
+                        const data = logs[i];
+                        const card = document.createElement('div');
+                        card.className = 'card';
+                        card.innerHTML = `
+                            <div class="video-box">
+                                <video width="320" height="240" controls crossorigin="anonymous" style="border-radius: 10px; background: #000;">
+                                    <source src="${data.video_url}" type="video/mp4">
+                                </video>
+                            </div>
+                            <div class="info-box">
+                                <h3 style="margin-top: 0; color: #d93025;">🚦 ${data.result} 감지</h3>
+                                <p><b>차량번호:</b> <span class="plate-number">${data.plate || '인식 불가능'}</span></p> 
+                                <p><b>감지 시간:</b> ${data.time || '정보 없음'}</p>
+                                <p style="font-size: 0.9em; color: #7f8c8d;">${data.location || '관제 구역 A-1'}</p>
+                            </div>
+                        `;
+                        container.prepend(card);
+                    }
+                    lastCount = logs.length;
+                }
+            } catch (e) { 
+                console.error("Log fetch error:", e); 
+            }
+        }
+        // 3초마다 새로운 위반 기록 확인
+        setInterval(checkNewLogs, 3000); 
+    </script>
+
+    <div class="upload-section" style="border-left: 5px solid #34a853; margin-top: 40px;">
+        <h3 style="margin-top:0;">🤖 교통법규 AI 전문가 상담</h3>
+        <p style="font-size: 0.85em; color: #666; margin-bottom: 15px;">교통법규 및 범칙금에 대해 무엇이든 물어보세요.</p>
+        <div style="display: flex; gap: 10px;">
+            <input type="text" id="user-question" placeholder="예: 중앙선 침범 벌금 얼마야?" 
+                   style="padding: 12px; border: 1px solid #ccc; border-radius: 8px; flex: 1;"
+                   onkeypress="if(event.keyCode==13) askLLM()">
+            <button onclick="askLLM()" id="ask-btn" style="background-color: #34a853;">질문하기</button>
+        </div>
+        <div id="llm-response"></div>
+    </div>
+
+    <script>
+        async function askLLM() {
+            const questionInput = document.getElementById('user-question');
+            const question = questionInput.value;
+            const responseBox = document.getElementById('llm-response');
+            const btn = document.getElementById('ask-btn');
+
+            if (!question) return alert("질문을 입력해 주세요.");
+
+            btn.disabled = true;
+            btn.innerText = "분석 중...";
+            responseBox.style.display = "block";
+            responseBox.innerHTML = "⏳ <b>AI가 법규 데이터를 확인 중입니다...</b>";
+
+            try {
+                // 💡 자바 서버의 챗봇 연동 주소 호출
+                const res = await fetch('/api/ask-chatbot', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question: question })
+                });
+
+                const data = await res.json();
+                
+                let answerText = "";
+                if (data && data.answer) {
+                    answerText = data.answer;
+                } else {
+                    answerText = "답변을 가져오는 데 실패했습니다.";
+                }
+
+                responseBox.innerHTML = `<b>🤖 AI 답변:</b><br>${answerText.replace(/\n/g, '<br>')}`;
+                questionInput.value = ""; // 입력창 초기화
+            } catch (e) {
+                responseBox.innerHTML = "❌ <b>서버 연결 실패</b><br>자바 서버(8080)가 켜져 있는지 확인하세요.";
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "질문하기";
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+# venv
+.venv/
+
+# python
+__pycache__/
+*.pyc
+
+# secrets
+.env
+
+# large model cache (선택)
+.cache/

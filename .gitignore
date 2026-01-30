@@ -1,0 +1,75 @@
+# ==========================
+# 1. 보안 및 환경변수 (절대 업로드 금지!)
+# ==========================
+.env
+.env.*
+! .env.example
+*.key
+*.pem
+secrets.json
+
+# ==========================
+# 2. Python 필수 무시 항목
+# ==========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ==========================
+# 3. 가상환경 (Virtual Environments)
+# ==========================
+venv/
+env/
+ENV/
+.venv/
+.env/
+
+# ==========================
+# 4. AI/Deep Learning (대용량 파일 무시)
+# ==========================
+# 모델 가중치 파일 (GitHub 용량 제한 초과 방지)
+*.pt
+*.pth
+*.h5
+*.hdf5
+*.onnx
+*.tflite
+*.ckpt
+*.pb
+
+# 데이터셋 폴더 (필요시 주석 해제)
+# datasets/
+# data/
+
+# 학습 로그 및 체크포인트
+runs/
+logs/
+tensorboard/
+wandb/
+.ipynb_checkpoints/
+
+# ==========================
+# 5. IDE 및 OS 설정
+# ==========================
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
