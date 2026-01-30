@@ -13,8 +13,6 @@
 #         """
 #         에러 수정 완료: Pydantic 및 ChatGroq 호환성 최적화
 #         """
-#         # 1. API 키 설정 (직접 입력보다 환경변수 우선 권장하지만 일단 코드에 유지)
-#         os.environ["GROQ_API_KEY"] = "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"
         
 #         # 2. 경로 설정 (app/models/ 하위)
 #         base_dir = os.path.dirname(os.path.dirname(__file__))
