@@ -2,7 +2,6 @@ import os
 import cv2
 import numpy as np
 import tensorflow as tf
-import csv
 import requests
 import urllib.parse
 from datetime import datetime
@@ -29,11 +28,9 @@ processing_files = set()
 
 class AIService:
     def __init__(self):
-        # 1. 위반 감지 모델 (TensorFlow - .h5)
         print("⏳ TF 모델 로딩 중...")
         self.model = tf.keras.models.load_model(MODEL_PATH, compile=False)
         
-        # 2. 학습된 YOLO 모델 로드 (.pt)
         print(f"⏳ YOLO 학습 모델 로딩 중: {NEW_YOLO_PATH}")
         try:
             self.obj_detector = YOLO(NEW_YOLO_PATH)
@@ -42,7 +39,6 @@ class AIService:
             print(f"❌ YOLO 로드 실패: {e}")
             self.obj_detector = None
 
-        # 3. 번호판 인식기
         try:
             self.lpr_system = PlateRecognizerModule(YOLO_PATH)
         except:
@@ -62,7 +58,7 @@ class AIService:
                 ret, frame = cap.read()
                 if not ret: break
 
-                # 1. YOLO(.pt) 실시간 탐지 실행
+                # 1. YOLO(.pt) 실시간 탐지
                 if self.obj_detector:
                     results = self.obj_detector(frame, conf=0.4, verbose=False)
                     for box in results[0].boxes:
@@ -74,7 +70,7 @@ class AIService:
             
             cap.release()
 
-            # 2. 위반 판단 (TensorFlow - .h5 모델)
+            # 2. 위반 판단 (TensorFlow)
             if len(all_frames) < SEQUENCE_LENGTH:
                 return {"result": "분석 불가(영상 짧음)", "prob": 0, "plate": "-"}
 
@@ -87,19 +83,34 @@ class AIService:
                 if pred[idx] > best_prob:
                     best_prob, best_class_idx, best_window_idx = pred[idx], idx, i
 
-            # 3. 결과 정리 및 YOLO 데이터 합치기
-            raw_label = CATEGORIES[best_class_idx] if best_class_idx != -1 else "정상 주행"
+            # =========================================================
+            # 🚀 [핵심 수정] 정상 주행 필터링 (임계값 적용)
+            # =========================================================
+            MIN_CONFIDENCE = 0.75  # 75% 미만이면 위반 아님(정상)으로 간주
+
+            if best_prob < MIN_CONFIDENCE:
+                raw_label = "정상 주행"
+                # 정상 주행이면 번호판 인식 굳이 할 필요 없으니 idx 초기화 (선택사항)
+                best_window_idx = -1 
+            else:
+                # 75% 이상일 때만 위반으로 인정
+                raw_label = CATEGORIES[best_class_idx] if best_class_idx != -1 else "정상 주행"
+
+            # YOLO 감지 결과 요약
             obj_summary = ", ".join(list(detected_items)) if detected_items else "없음"
             
-            # 🚀 [핵심 수정] 결과 문구에 YOLO 탐지 객체 정보를 포함시킵니다.
             final_display_result = f"{raw_label} ({obj_summary})"
 
+            # 3. 번호판 인식 (위반일 때만 수행하거나, 정상이어도 수행 가능)
             plate_text = "인식 불가"
+            # best_window_idx가 -1이 아니라는 건 위반이 감지되었다는 뜻
             if self.lpr_system and best_window_idx != -1:
                 plate_text = self.lpr_system.process_segment(local_path, best_window_idx * STEP_SIZE, SEQUENCE_LENGTH) or "인식 불가"
+            elif raw_label == "정상 주행":
+                plate_text = "-"  # 정상 주행이면 번호판 굳이 안 띄움
 
             return {
-                "result": final_display_result, # 합쳐진 결과 전송
+                "result": final_display_result, 
                 "plate": plate_text,
                 "location": "수원시 팔달구 매산로 1",
                 "time": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
@@ -113,7 +124,7 @@ class AIService:
             return {"result": "에러 발생", "prob": 0, "plate": "Error"}
 
     def process_video_task(self, video_key):
-        """S3 업로드 시 백그라운드 분석 태스크 (기존 유지)"""
+        # (기존 코드와 동일)
         decoded_key = urllib.parse.unquote_plus(video_key)
         filename = os.path.basename(decoded_key)
 
@@ -124,7 +135,6 @@ class AIService:
             local_path = os.path.join(TEMP_VIDEO_DIR, filename)
             s3_manager.download_file(decoded_key, local_path)
             
-            # analyze_local_video 로직과 동일하게 처리하도록 결과 호출
             payload = self.analyze_local_video(local_path)
             payload["video_url"] = s3_manager.get_presigned_url(decoded_key)
             
