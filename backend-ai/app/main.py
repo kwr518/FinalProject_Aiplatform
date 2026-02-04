@@ -1,6 +1,7 @@
 import os
 import shutil
 import requests
+from datetime import datetime
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Form
 from fastapi.responses import JSONResponse
 from starlette.middleware.sessions import SessionMiddleware 
@@ -14,10 +15,12 @@ from app.routers import traffic, auth
 try:
     from app.services.s3_service import s3_manager
     from app.services.ai_service import ai_manager
+    from app.services.llm_service import get_llm_manager # ★ 추가됨: AI 초안 생성기
 except ImportError:
     s3_manager = None
     ai_manager = None
-    print("❌ [오류] 서비스 모듈(s3_service, ai_service)을 찾을 수 없습니다.")
+    get_llm_manager = None
+    print("❌ [오류] 서비스 모듈(s3_service, ai_service, llm_service)을 찾을 수 없습니다.")
 
 app = FastAPI(title="AI 교통관제 시스템")
 
@@ -40,7 +43,7 @@ app.add_middleware(
 
 # 3. 라우터 등록
 app.include_router(traffic.router) 
-app.include_router(auth.router)    
+app.include_router(auth.router)     
 
 # 임시 파일 저장소
 TEMP_DIR = "temp_videos"
@@ -77,7 +80,7 @@ def background_s3_upload(local_path: str, s3_key: str):
         except:
             pass
 
-# ★ 분석 엔드포인트 (통합 및 정리됨)
+# ★ 분석 엔드포인트 (AI 초안 생성 기능 통합 완료)
 @app.post("/api/analyze-video")
 async def analyze_video_endpoint(
     background_tasks: BackgroundTasks, 
@@ -104,22 +107,65 @@ async def analyze_video_endpoint(
         result = ai_manager.analyze_local_video(file_path)
         
         # 3. S3 경로(Key) 생성
-        # raspberrypi_video 폴더 안에 -> 시리얼번호 폴더 안에 -> 파일
         s3_key = f"raspberrypi_video/{folder_name}/{filename}"
         
         if s3_manager:
-            # 미리보기 URL 생성 (업로드 전이라도 미리 생성 가능)
+            # 미리보기 URL 생성
             result["video_url"] = s3_manager.get_presigned_url(s3_key)
         
         print(f"✅ [Main] 분석 완료: {result['result']}")
 
-        # 4. 자바 서버로 결과 전송 (DB 저장용)
+        # =========================================================
+        # ★ [추가됨] 4. AI 신고 초안 생성 및 데이터 정제
+        # =========================================================
+        llm_manager = get_llm_manager()
+        ai_draft_text = ""
+        violation_type = result.get("result", "")
+        
+        # 위반 사항이 있을 때만 초안 생성
+        if "정상" not in violation_type and "에러" not in violation_type and llm_manager:
+            print(f"📝 [Main] 신고 초안 생성 요청 중... ({violation_type})")
+            
+            draft_prompt = f"""
+            다음 위반 사실을 바탕으로 안전신문고 신고 내용을 "상세 내용" 칸에 들어갈 말투로 작성해줘.
+            - 위반 일시: {result.get("time", "")}
+            - 위반 장소: {result.get("location", "")}
+            - 위반 항목: {violation_type}
+            - 차량 번호: {result.get("plate", "")}
+            """
+            ai_draft_text = llm_manager.get_report_draft(draft_prompt)
+            print(f"✅ [Main] 초안 생성 완료: {ai_draft_text[:20]}...")
+        else:
+            ai_draft_text = "위반 사항 없음" if "정상" in violation_type else "분석 실패"
+
+        # 날짜/시간 분리 (Java DTO 포맷용)
+        time_str = result.get("time", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
         try:
-            # 자바 쪽에도 시리얼 번호 같이 넘겨줌
-            result["serial_no"] = folder_name
+            dt = datetime.strptime(time_str, '%Y-%m-%d %H:%M:%S')
+            incident_date = dt.strftime('%Y-%m-%d')
+            incident_time = dt.strftime('%H:%M:%S')
+        except:
+            incident_date = time_str
+            incident_time = ""
+
+        # =========================================================
+        # 5. 자바 서버로 결과 전송 (DB 저장용)
+        # =========================================================
+        try:
+            # 자바 DTO(IncidentLogDTO) 필드명에 정확히 맞춘 Payload 생성
+            java_payload = {
+                "serialNo": folder_name,
+                "videoUrl": result.get("video_url", ""),
+                "incidentDate": incident_date,
+                "incidentTime": incident_time,
+                "violationType": violation_type,
+                "plateNo": result.get("plate", "-"),
+                "location": result.get("location", ""),
+                "aiDraft": ai_draft_text  # ★ 핵심: 초안 데이터 포함
+            }
             
             print(f"🚀 [Main] 자바 서버로 데이터 전송 시도: {JAVA_SERVER_URL}")
-            response = requests.post(JAVA_SERVER_URL, json=result, timeout=5)
+            response = requests.post(JAVA_SERVER_URL, json=java_payload, timeout=5)
             
             if response.status_code == 200:
                 print("✅ [Main] 자바 서버 DB 저장 성공!")
@@ -128,10 +174,11 @@ async def analyze_video_endpoint(
         except Exception as e:
             print(f"❌ [Main] 자바 서버 연결 실패 (DB 저장 안됨): {e}")
 
-        # 5. S3 업로드는 백그라운드로 넘김 (응답 속도 향상)
+        # 6. S3 업로드는 백그라운드로 넘김
         background_tasks.add_task(background_s3_upload, file_path, s3_key)
 
-        # 6. 프론트엔드에 결과 반환
+        # 7. 프론트엔드에 결과 반환 (aiDraft 포함)
+        result["aiDraft"] = ai_draft_text
         return JSONResponse(content=result)
 
     except Exception as e:

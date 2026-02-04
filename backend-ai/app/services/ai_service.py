@@ -13,6 +13,7 @@ from app.core.config import (
 )
 from app.core.global_state import detection_logs
 from app.services.s3_service import s3_manager
+from app.services.llm_service import get_llm_manager  # ★ 1. LLM 매니저 가져오기
 
 # 번호판 인식 모듈 (선택적 로드)
 try:
@@ -111,7 +112,7 @@ class AIService:
             # =========================================================
             # 🚀 정상 주행 필터링 (임계값 적용)
             # =========================================================
-            MIN_CONFIDENCE = 0.75  # 75% 미만이면 위반 아님(정상)으로 간주
+            MIN_CONFIDENCE = 0.5  # 50% 미만이면 위반 아님(정상)으로 간주
 
             if best_prob < MIN_CONFIDENCE:
                 raw_label = "정상 주행"
@@ -121,7 +122,7 @@ class AIService:
 
             # 3. 결과 정리
             obj_summary = ", ".join(list(detected_items)) if detected_items else "없음"
-            final_display_result = f"{raw_label} ({obj_summary})"
+            final_display_result = f"{raw_label}" # 위반명만 사용
 
             # 4. 번호판 인식 (위반이 감지된 경우에만 수행)
             plate_text = "-"
@@ -143,8 +144,8 @@ class AIService:
 
         except Exception as e:
             print(f"❌ 로컬 분석 에러: {e}")
-            import traceback
-            traceback.print_exc()
+            # import traceback
+            # traceback.print_exc()
             return {"result": "에러 발생", "prob": 0, "plate": "Error"}
 
     def process_video_task(self, video_key):
@@ -164,12 +165,65 @@ class AIService:
             
             s3_manager.download_file(decoded_key, local_path)
             
-            payload = self.analyze_local_video(local_path)
-            payload["video_url"] = s3_manager.get_presigned_url(decoded_key)
+            # 1. 영상 분석 수행
+            analysis_result = self.analyze_local_video(local_path)
+            video_url = s3_manager.get_presigned_url(decoded_key)
+            
+            # 날짜 및 시간 분리 (Java DTO 포맷 맞춤)
+            incident_datetime = analysis_result.get("time", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+            try:
+                dt_obj = datetime.strptime(incident_datetime, '%Y-%m-%d %H:%M:%S')
+                incident_date = dt_obj.strftime('%Y-%m-%d')
+                incident_time = dt_obj.strftime('%H:%M:%S')
+            except:
+                incident_date = incident_datetime
+                incident_time = ""
+
+            # 시리얼 번호 (파일명 활용)
+            serial_no = os.path.splitext(filename)[0]
+            violation_type = analysis_result.get("result", "")
+
+            # ---------------- [추가된 코드 시작: LLM 신고 초안 생성] ----------------
+            # 2. LLM 매니저 가져오기
+            llm_manager = get_llm_manager()
+            ai_description = ""
+            
+            # 위반 사항이 있을 때만 초안 생성 ('정상 주행'이나 '에러'가 아닐 때)
+            if "정상" not in violation_type and "에러" not in violation_type:
+                # AI에게 던져줄 프롬프트 만들기
+                draft_prompt = f"""
+                다음 위반 사실을 바탕으로 안전신문고 신고 내용을 "상세 내용" 칸에 들어갈 말투로 작성해줘.
+                - 위반 일시: {incident_datetime}
+                - 위반 장소: {analysis_result.get("location", "")}
+                - 위반 항목: {violation_type}
+                - 차량 번호: {analysis_result.get("plate", "")}
+                """
+
+                # 함수 호출해서 초안 생성
+                print(f"📝 신고 초안 생성 요청 중... (위반: {violation_type})")
+                ai_description = llm_manager.get_report_draft(draft_prompt)
+                print(f"✅ AI가 생성한 신고 초안: {ai_description[:30]}...")
+            else:
+                ai_description = "위반 사항 없음 또는 분석 실패"
+            # ---------------- [추가된 코드 끝] ----------------
+
+            # 3. 자바 서버로 보낼 최종 데이터(payload) 구성
+            # (Java의 IncidentLogDTO와 매핑됩니다)
+            payload = {
+                "serialNo": serial_no,
+                "videoUrl": video_url,
+                "incidentDate": incident_date,
+                "incidentTime": incident_time,
+                "violationType": violation_type,
+                "plateNo": analysis_result.get("plate", "-"),
+                "location": analysis_result.get("location", ""),
+                
+                "aiDraft": ai_description  # <--- ★ 상세 내용(초안) 추가됨!
+            }
             
             detection_logs.append(payload)
 
-            # Java(Spring) 서버로 결과 전송
+            # 4. Java(Spring) 서버로 결과 전송
             if USE_JAVA_SYNC:
                 try:
                     requests.post(JAVA_SERVER_URL, json=payload, timeout=3)
@@ -177,7 +231,7 @@ class AIService:
                 except Exception as java_e:
                     print(f"⚠️ Java 서버 전송 실패: {java_e}")
             
-            print(f"✅ 분석 완료: {payload['result']}")
+            print(f"✅ 분석 및 전송 완료: {violation_type}")
 
             # 임시 파일 정리
             if os.path.exists(local_path): 

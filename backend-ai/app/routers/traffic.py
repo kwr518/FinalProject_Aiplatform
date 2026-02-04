@@ -90,12 +90,21 @@ async def get_logs():
 async def s3_webhook(request: Request, background_tasks: BackgroundTasks):
     """S3 업로드 신호를 감지하여 AI 분석 작업 시작"""
     data = await request.json()
+    
+    # --- [중복 분석 방지 코드 추가 시작] ---
+    # 신호(data) 내용 중에 'WEB_UPLOAD'라는 글자가 있으면 이미 분석된 것이므로 무시합니다.
+    if "WEB_UPLOAD" in str(data):
+        print(f"🚫 [Bypass] 웹 업로드 파일은 이미 분석되었으므로 건너뜁니다.")
+        return {"status": "skipped", "reason": "already_analyzed_in_web"}
+    # --- [중복 분석 방지 코드 추가 끝] ---
+
     for record in data.get('Records', []):
         video_key = record['s3']['object']['key']
         if video_key.lower().endswith('.mp4'):
             print(f"🔔 S3 신호 수신: {video_key}")
             # 비동기 방식으로 영상 분석 실행
             background_tasks.add_task(ai_manager.process_video_task, video_key)
+            
     return {"status": "ok"}
 
 # --- [LLM 채팅 연동 핵심 구간] ---
