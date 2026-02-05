@@ -31,9 +31,9 @@ app.add_middleware(SessionMiddleware, secret_key="your-secret-key-here")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:8080", 
+        "http://192.168.0.40:8080", 
         "http://127.0.0.1:8080",
-        "http://localhost:3000",   
+        "http://192.168.0.40:3000",   
         "http://127.0.0.1:3000"
     ],
     allow_credentials=True,
@@ -50,7 +50,7 @@ TEMP_DIR = "temp_videos"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
 # 자바 서버 주소
-JAVA_SERVER_URL = "http://localhost:8080/api/violations"
+JAVA_SERVER_URL = "http://192.168.0.40:8080/api/violations"
 
 @app.get("/")
 def read_root():

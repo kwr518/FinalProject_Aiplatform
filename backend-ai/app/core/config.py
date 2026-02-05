@@ -33,5 +33,5 @@ S3_CONFIG = Config(region_name=AWS_REGION, signature_version='s3v4')
 
 # --- [자바 서버 연동 설정] ---
 USE_JAVA_SYNC = True
-# 💡 로컬 테스트를 위해 localhost 주소로 변경합니다.
-JAVA_SERVER_URL = "http://localhost:8080/api/violations"
+# 💡 로컬 테스트를 위해 192.168.0.40 주소로 변경합니다.
+JAVA_SERVER_URL = "http://192.168.0.40:8080/api/violations"

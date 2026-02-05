@@ -14,10 +14,10 @@ from app.services.llm_service import get_llm_manager
 USE_JAVA_SYNC = True 
 
 # 챗봇 답변을 보낼 자바 서버의 주소
-JAVA_TARGET_URL = "http://localhost:8080/api/chatbot-response"
+JAVA_TARGET_URL = "http://192.168.0.40:8080/api/chatbot-response"
 
 # AI가 감지한 교통 위반 데이터를 보낼 자바 서버 주소
-JAVA_VIOLATION_URL = "http://localhost:8080/api/violations"
+JAVA_VIOLATION_URL = "http://192.168.0.40:8080/api/violations"
 
 # LLM을 조절하는 관리자 객체를 변수에 담기: 프롬포트(법률 전문가, 신고서 작성 등)와 API키 관리가 세팅된 프로그램 가져오기
 llm_manager = get_llm_manager()
@@ -29,7 +29,7 @@ router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 
 # @router: 위에서 만든 router 객체를 사용하기 위한 선언
-# .get("/") : localhost:8000/을 치고 들어오는 GET 요청잡기
+# .get("/") : 192.168.0.40:8000/을 치고 들어오는 GET 요청잡기
 # response_class = 함수가 끝날때 보내주는 결과물은 Json이 아닌 웹화면(HTML)임을 안내
 @router.get("/", response_class=HTMLResponse)
 async def index(request: Request):  # 비동기 처리 및 브라우저가 보낸 ip, 헤더 등을 request  변수에 담아 쓰기 

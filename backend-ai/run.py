@@ -76,7 +76,7 @@ if __name__ == "__main__":
         # FastAPI 서버를 실행해 
         # 내 컴퓨터에서 실행한 이후 ngrok이 외부 신호를 
         uvicorn.run("app.main:app",     # app 폴더 안의 main.py 파일에 있는 app 객체 실행
-                    host="127.0.0.1",   # 127.0.0.1:8000 내부 주소와 외부 주소를 연결
+                    host="0.0.0.0",   # 127.0.0.1:8000 내부 주소와 외부 주소를 연결
                     port=PORT, 
                     reload=False)       # run.py 에서 실행 때 코드 수정을 실시간으로 반영하지 않음(배포/실행 환경)
     except Exception as e:

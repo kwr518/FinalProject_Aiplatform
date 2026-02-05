@@ -135,7 +135,7 @@ class AIService:
             return {
                 "result": final_display_result, 
                 "plate": plate_text,
-                "location": "수원시 팔달구 매산로 1", # GPS 연동 전 임시값
+                "location": "--", # GPS 연동 전 임시값
                 "time": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                 "prob": round(float(best_prob * 100), 2),
                 "info": f"YOLO 감지: {obj_summary}",
